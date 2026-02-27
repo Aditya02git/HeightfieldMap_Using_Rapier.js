@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terrain Explorer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Share Tech Mono', monospace;
+      color: #00ff88;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Crosshair */
+    #crosshair {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      width: 20px; height: 20px;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(0,255,136,0.8);
+    }
+    #crosshair::before {
+      width: 2px; height: 100%;
+      left: 50%; top: 0;
+      transform: translateX(-50%);
+    }
+    #crosshair::after {
+      width: 100%; height: 2px;
+      top: 50%; left: 0;
+      transform: translateY(-50%);
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+    }
+
+    /* Scan lines overlay */
+    #hud::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+      pointer-events: none;
+    }
+
+    #top-bar {
+      position: absolute;
+      top: 24px; left: 24px; right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .hud-panel {
+      background: rgba(0,10,6,0.75);
+      border: 1px solid rgba(0,255,136,0.25);
+      padding: 10px 16px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      line-height: 1.8;
+      backdrop-filter: blur(4px);
+    }
+
+    .hud-panel .label {
+      color: rgba(0,255,136,0.4);
+      font-size: 9px;
+      letter-spacing: 0.2em;
+    }
+
+    .hud-panel .value {
+      color: #00ff88;
+      font-size: 13px;
+    }
+
+    .title-block {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.3em;
+      color: #00ff88;
+      text-shadow: 0 0 20px rgba(0,255,136,0.5);
+    }
+
+    .title-block .sub {
+      font-family: 'Share Tech Mono', monospace;
+      font-weight: 400;
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      color: rgba(0,255,136,0.4);
+      margin-top: 3px;
+    }
+
+    #bottom-bar {
+      position: absolute;
+      bottom: 24px; left: 24px; right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    #controls-hint {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: rgba(0,255,136,0.3);
+      line-height: 2;
+    }
+
+    #controls-hint span {
+      display: inline-block;
+      border: 1px solid rgba(0,255,136,0.2);
+      padding: 1px 5px;
+      margin-right: 3px;
+      font-size: 8px;
+    }
+
+    #speed-bar-wrap {
+      text-align: right;
+    }
+
+    #speed-bar-wrap .label {
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      color: rgba(0,255,136,0.4);
+      margin-bottom: 4px;
+    }
+
+    #speed-bar {
+      width: 120px;
+      height: 3px;
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.2);
+      margin-left: auto;
+    }
+
+    #speed-fill {
+      height: 100%;
+      background: #00ff88;
+      width: 0%;
+      transition: width 0.1s;
+      box-shadow: 0 0 6px #00ff88;
+    }
+
+    /* Corner decorations */
+    .corner {
+      position: absolute;
+      width: 40px; height: 40px;
+    }
+    .corner::before, .corner::after {
+      content: '';
+      position: absolute;
+      background: rgba(0,255,136,0.4);
+    }
+    .corner::before { width: 100%; height: 1px; top: 0; }
+    .corner::after { width: 1px; height: 100%; }
+
+    .corner.tl { top: 10px; left: 10px; }
+    .corner.tl::after { left: 0; top: 0; }
+
+    .corner.tr { top: 10px; right: 10px; transform: scaleX(-1); }
+    .corner.tr::after { left: 0; top: 0; }
+
+    .corner.bl { bottom: 10px; left: 10px; transform: scaleY(-1); }
+    .corner.bl::after { left: 0; top: 0; }
+
+    .corner.br { bottom: 10px; right: 10px; transform: scale(-1,-1); }
+    .corner.br::after { left: 0; top: 0; }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.8s ease;
+    }
+
+    #loading.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #loading .logo {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.4em;
+      color: #00ff88;
+      text-shadow: 0 0 40px rgba(0,255,136,0.6);
+      margin-bottom: 8px;
+    }
+
+    #loading .sub {
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: rgba(0,255,136,0.4);
+      margin-bottom: 48px;
+    }
+
+    #loading-bar-wrap {
+      width: 240px;
+      height: 2px;
+      background: rgba(0,255,136,0.1);
+      position: relative;
+    }
+
+    #loading-bar {
+      height: 100%;
+      background: #00ff88;
+      box-shadow: 0 0 10px #00ff88;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    #loading-status {
+      margin-top: 16px;
+      font-size: 9px;
+      letter-spacing: 0.3em;
+      color: rgba(0,255,136,0.4);
+    }
+
+    /* Click to play */
+    #click-to-play {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      cursor: pointer;
+      display: none;
+    }
+
+    #click-to-play .msg {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.4em;
+      color: #00ff88;
+      text-shadow: 0 0 30px rgba(0,255,136,0.5);
+      border: 1px solid rgba(0,255,136,0.3);
+      padding: 18px 40px;
+      background: rgba(0,10,6,0.8);
+      animation: pulse 2s ease infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    #pos-display { display: none; }
+  </style>
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loading">
+    <div class="logo">TERRAIN</div>
+    <div class="sub">EXPLORER v1.0</div>
+    <div id="loading-bar-wrap">
+      <div id="loading-bar"></div>
+    </div>
+    <div id="loading-status">INITIALIZING PHYSICS...</div>
+  </div>
+
+  <!-- Click to Play -->
+  <div id="click-to-play">
+    <div class="msg">CLICK TO ENTER</div>
+  </div>
+
+  <!-- Game Canvas -->
+  <canvas id="canvas"></canvas>
+
+  <!-- Crosshair -->
+  <div id="crosshair"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <!-- Corner decorations -->
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div id="top-bar">
+      <div class="title-block">
+        TERRAIN EXPLORER
+        <div class="sub">200M × 200M · HEIGHTFIELD PHYSICS</div>
+      </div>
+      <div class="hud-panel" style="text-align:right">
+        <div class="label">Position</div>
+        <div class="value" id="pos-x">X: 0.0</div>
+        <div class="value" id="pos-y">Y: 0.0</div>
+        <div class="value" id="pos-z">Z: 0.0</div>
+      </div>
+    </div>
+
+    <div id="bottom-bar">
+      <div id="controls-hint">
+        <span>W A S D</span> MOVE &nbsp;
+        <span>SPACE</span> JUMP &nbsp;
+        <span>MOUSE</span> LOOK &nbsp;
+        <span>SHIFT</span> SPRINT
+      </div>
+      <div id="speed-bar-wrap">
+        <div class="label">VELOCITY</div>
+        <div id="speed-bar"><div id="speed-fill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
